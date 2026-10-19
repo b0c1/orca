@@ -5,7 +5,7 @@
   "name": "Project Groups Sync",
   "version": "1.0.0",
   "description": "Keeps project groups in a JSON file you can edit by hand or share between devices through a synced folder.",
-  "engines": { "orca": ">=1.4.0" },
+  "engines": { "orca": ">=1.4.215" },
   "pluginApi": 1,
   "main": "main.mjs",
   "contributes": {
