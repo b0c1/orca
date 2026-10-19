@@ -4,6 +4,7 @@ import type { PluginHostServices } from './plugin-host-methods'
 import { PluginSecretsStore } from './plugin-secrets-store'
 import { PluginKvStore } from './plugin-storage-store'
 import type { TerminalInputKind } from '../../shared/terminal-input-kind'
+import type { FolderWorkspace } from '../../shared/folder-workspace-types'
 import type { ProjectGroup } from '../../shared/project-group-types'
 import { getProjectGroupSubtreeIds } from '../../shared/project-groups'
 import type { Repo } from '../../shared/repo-types'
@@ -33,6 +34,9 @@ export type PluginRuntimeDelegate = {
   }): Promise<{ delivered: boolean }>
   listVisibleRepos(): Repo[]
   listVisibleProjectGroups(): ProjectGroup[]
+  /** Full store, hidden groups included: the delete cascade does not stop at visibility. */
+  listProjectGroups(): ProjectGroup[]
+  listFolderWorkspaces(): FolderWorkspace[]
   createProjectGroup(input: { name: string }): Promise<ProjectGroup>
   deleteProjectGroup(groupId: string): Promise<{ deleted: boolean }>
   moveProjectToGroup(repoSelector: string, groupId: string | null): Promise<Repo>
@@ -113,18 +117,49 @@ export function bindPluginHostServices(input: {
       }),
       createGroup: async (name) => ({ id: (await delegate.createProjectGroup({ name })).id }),
       deleteGroup: async (groupId) => {
-        const groups = delegate.listVisibleProjectGroups()
-        if (!groups.some((entry) => entry.id === groupId)) {
+        if (!delegate.listVisibleProjectGroups().some((entry) => entry.id === groupId)) {
           return { deleted: false }
         }
-        // Deletion cascades to nested groups, so one folder-backed descendant blocks it.
+        // Deletion cascades through nested groups (hidden ones too) and removes every folder
+        // workspace filed under them, so any such descendant blocks it.
+        const groups = delegate.listProjectGroups()
         const subtree = getProjectGroupSubtreeIds(groups, groupId)
-        if (groups.some((entry) => subtree.has(entry.id) && isFolderBackedGroup(entry))) {
+        const visible = new Set(delegate.listVisibleProjectGroups().map((entry) => entry.id))
+        if (
+          groups.some(
+            (entry) =>
+              subtree.has(entry.id) && (isFolderBackedGroup(entry) || !visible.has(entry.id))
+          )
+        ) {
           throw new Error('folder-backed project groups cannot be deleted by plugins')
+        }
+        if (
+          delegate.listFolderWorkspaces().some((workspace) => subtree.has(workspace.projectGroupId))
+        ) {
+          throw new Error(
+            'project groups containing folder workspaces cannot be deleted by plugins'
+          )
         }
         return delegate.deleteProjectGroup(groupId)
       },
       moveToGroup: async (projectId, groupId) => {
+        const repo = delegate.listVisibleRepos().find((entry) => entry.id === projectId)
+        if (!repo) {
+          throw new Error('project not found')
+        }
+        const groups = delegate.listVisibleProjectGroups()
+        const isPluginManaged = (id: string | null | undefined): boolean =>
+          id == null || groups.some((entry) => entry.id === id && !isFolderBackedGroup(entry))
+        // Folder-backed groups are device-specific: plugins neither empty nor fill them.
+        if (!isPluginManaged(repo.projectGroupId)) {
+          throw new Error('project belongs to a folder-backed group')
+        }
+        if (groupId !== null && !groups.some((entry) => entry.id === groupId)) {
+          throw new Error('project group not found')
+        }
+        if (!isPluginManaged(groupId)) {
+          throw new Error('folder-backed project groups cannot receive projects from plugins')
+        }
         await delegate.moveProjectToGroup(`id:${projectId}`, groupId)
       }
     }

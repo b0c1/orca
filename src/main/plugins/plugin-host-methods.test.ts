@@ -143,6 +143,8 @@ function createTerminalHarness(terminalHandles: string[]): {
     dispatchPluginNotification: vi.fn().mockResolvedValue({ delivered: true }),
     listVisibleRepos: vi.fn().mockReturnValue([]),
     listVisibleProjectGroups: vi.fn().mockReturnValue([]),
+    listProjectGroups: vi.fn().mockReturnValue([]),
+    listFolderWorkspaces: vi.fn().mockReturnValue([]),
     createProjectGroup: vi.fn(),
     deleteProjectGroup: vi.fn(),
     moveProjectToGroup: vi.fn()

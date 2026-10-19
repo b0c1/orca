@@ -22,6 +22,18 @@ function group(overrides: Partial<ProjectGroup>): ProjectGroup {
   }
 }
 
+const GROUPS = [
+  group({ id: 'manual', name: 'Work' }),
+  group({ id: 'folder', name: 'Scanned', parentPath: '/Users/private/src' }),
+  group({ id: 'parent', name: 'Parent' }),
+  group({ id: 'nested', name: 'Nested', parentGroupId: 'parent', connectionId: 'ssh-1' }),
+  group({ id: 'hidden-parent', name: 'Hidden parent' }),
+  group({ id: 'with-workspace', name: 'With workspace' })
+]
+const HIDDEN_GROUPS = [
+  group({ id: 'hidden-child', name: 'Hidden child', parentGroupId: 'hidden-parent' })
+]
+
 function harness() {
   const delegate: PluginRuntimeDelegate = {
     resolveActiveWorktreeContext: vi.fn(),
@@ -41,16 +53,19 @@ function harness() {
           remoteName: 'origin',
           remoteUrl: 'git@github.com:acme/api.git'
         }
+      } satisfies Repo,
+      {
+        id: 'r2',
+        path: '/Users/private/scan',
+        displayName: 'scan',
+        badgeColor: '#000',
+        addedAt: 0,
+        projectGroupId: 'folder'
       } satisfies Repo
     ]),
-    listVisibleProjectGroups: vi
-      .fn()
-      .mockReturnValue([
-        group({ id: 'manual', name: 'Work' }),
-        group({ id: 'folder', name: 'Scanned', parentPath: '/Users/private/src' }),
-        group({ id: 'parent', name: 'Parent' }),
-        group({ id: 'nested', name: 'Nested', parentGroupId: 'parent', connectionId: 'ssh-1' })
-      ]),
+    listVisibleProjectGroups: vi.fn().mockReturnValue(GROUPS),
+    listProjectGroups: vi.fn().mockReturnValue([...GROUPS, ...HIDDEN_GROUPS]),
+    listFolderWorkspaces: vi.fn().mockReturnValue([{ id: 'fw', projectGroupId: 'with-workspace' }]),
     createProjectGroup: vi.fn(),
     deleteProjectGroup: vi.fn().mockResolvedValue({ deleted: true }),
     moveProjectToGroup: vi.fn()
@@ -83,22 +98,35 @@ describe('plugin project catalog methods', () => {
           { id: 'manual', name: 'Work', folderBacked: false },
           { id: 'folder', name: 'Scanned', folderBacked: true },
           { id: 'parent', name: 'Parent', folderBacked: false },
-          { id: 'nested', name: 'Nested', folderBacked: true }
+          { id: 'nested', name: 'Nested', folderBacked: true },
+          { id: 'hidden-parent', name: 'Hidden parent', folderBacked: false },
+          { id: 'with-workspace', name: 'With workspace', folderBacked: false }
         ],
         projects: [
-          { id: 'r1', displayName: 'api', remoteKey: 'github.com/acme/api', groupId: 'manual' }
+          { id: 'r1', displayName: 'api', remoteKey: 'github.com/acme/api', groupId: 'manual' },
+          { id: 'r2', displayName: 'scan', remoteKey: null, groupId: 'folder' }
         ]
       }
     })
   })
 
-  it('refuses to delete folder-backed groups or their ancestors', async () => {
+  it('refuses to delete folder-backed groups, their ancestors, hidden subtrees and workspace owners', async () => {
     const { delegate, call } = harness()
     expect(await call('projectGroups.delete', { groupId: 'folder' })).toMatchObject({
       ok: false,
       code: 'action_failed'
     })
     expect(await call('projectGroups.delete', { groupId: 'parent' })).toMatchObject({ ok: false })
+    expect(await call('projectGroups.delete', { groupId: 'hidden-parent' })).toMatchObject({
+      ok: false
+    })
+    expect(await call('projectGroups.delete', { groupId: 'with-workspace' })).toMatchObject({
+      ok: false
+    })
+    expect(await call('projectGroups.delete', { groupId: 'hidden-child' })).toEqual({
+      ok: true,
+      value: { deleted: false }
+    })
     expect(delegate.deleteProjectGroup).not.toHaveBeenCalled()
     expect(await call('projectGroups.delete', { groupId: 'manual' })).toEqual({
       ok: true,
@@ -110,6 +138,20 @@ describe('plugin project catalog methods', () => {
     const { delegate, call } = harness()
     await call('projects.moveToGroup', { projectId: 'r1', groupId: null })
     expect(delegate.moveProjectToGroup).toHaveBeenCalledWith('id:r1', null)
+    await call('projects.moveToGroup', { projectId: 'r1', groupId: 'parent' })
+    expect(delegate.moveProjectToGroup).toHaveBeenCalledWith('id:r1', 'parent')
+    for (const params of [
+      { projectId: 'r2', groupId: null },
+      { projectId: 'r1', groupId: 'folder' },
+      { projectId: 'r1', groupId: 'hidden-child' },
+      { projectId: 'missing', groupId: null }
+    ]) {
+      expect(await call('projects.moveToGroup', params)).toMatchObject({
+        ok: false,
+        code: 'action_failed'
+      })
+    }
+    expect(delegate.moveProjectToGroup).toHaveBeenCalledTimes(2)
     const denied = await executePluginHostCall({
       pluginId: 'orca-samples.demo',
       method: 'projects.list',
