@@ -138,6 +138,12 @@ function summarizeParams(method: string, params: unknown): string {
     case 'secrets.delete':
     case 'settings.set':
       return `key=${String(record.key)}`
+    case 'projectGroups.create':
+      return `nameChars=${typeof record.name === 'string' ? record.name.length : 0}`
+    case 'projectGroups.delete':
+      return `group=${String(record.groupId)}`
+    case 'projects.moveToGroup':
+      return `project=${String(record.projectId)} group=${String(record.groupId)}`
     default:
       return ''
   }

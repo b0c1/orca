@@ -1,0 +1,21 @@
+{
+  "manifestVersion": 1,
+  "id": "project-groups-sync",
+  "publisher": "orca-samples",
+  "name": "Project Groups Sync",
+  "version": "1.0.0",
+  "description": "Keeps project groups in a JSON file you can edit by hand or share between devices through a synced folder.",
+  "engines": { "orca": ">=1.4.0" },
+  "pluginApi": 1,
+  "main": "main.mjs",
+  "contributes": {
+    "commands": [{ "id": "project-groups-sync-now", "title": "Project Groups: Sync Now" }],
+    "events": [{ "on": "projects.changed" }]
+  },
+  "capabilities": [
+    { "kind": "projects:organize" },
+    { "kind": "storage" },
+    { "kind": "events:subscribe" },
+    { "kind": "notifications:show" }
+  ]
+}

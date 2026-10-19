@@ -95,12 +95,60 @@ const eventsSubscribeParams = z.object({
 })
 const eventsSubscribeResult = z.object({ subscribed: z.array(z.enum(PLUGIN_EVENT_NAMES)) })
 
+export const PLUGIN_PROJECT_LIST_LIMIT = 2000
+export const PLUGIN_PROJECT_GROUP_LIST_LIMIT = 500
+const projectIdSchema = z.string().min(1).max(512)
+const projectGroupNameSchema = z.string().trim().min(1).max(PLUGIN_WORKSPACE_LABEL_MAX_LENGTH)
+
+const projectsListParams = z.object({}).strict().optional()
+const projectsListResult = z.object({
+  groups: z
+    .array(
+      z
+        .object({
+          id: projectIdSchema,
+          name: z.string().max(PLUGIN_WORKSPACE_LABEL_MAX_LENGTH),
+          /** Imported from a folder or remote root; plugins cannot delete these. */
+          folderBacked: z.boolean()
+        })
+        .strict()
+    )
+    .max(PLUGIN_PROJECT_GROUP_LIST_LIMIT),
+  projects: z
+    .array(
+      z
+        .object({
+          id: projectIdSchema,
+          displayName: z.string().max(PLUGIN_WORKSPACE_LABEL_MAX_LENGTH),
+          /** Device-independent git remote key (e.g. `github.com/owner/repo`), when known. */
+          remoteKey: z.string().max(2048).nullable(),
+          groupId: projectIdSchema.nullable()
+        })
+        .strict()
+    )
+    .max(PLUGIN_PROJECT_LIST_LIMIT)
+})
+export const projectGroupsCreateParams = z.object({ name: projectGroupNameSchema }).strict()
+const projectGroupsCreateResult = z.object({ id: projectIdSchema })
+export const projectGroupsDeleteParams = z.object({ groupId: projectIdSchema }).strict()
+const projectGroupsDeleteResult = z.object({ deleted: z.boolean() })
+export const projectsMoveToGroupParams = z
+  .object({ projectId: projectIdSchema, groupId: projectIdSchema.nullable() })
+  .strict()
+const projectsMoveToGroupResult = z.object({ ok: z.literal(true) })
+
 export type PluginHostMethodSpec = {
   name: string
   /** pluginApi minor the method appeared in (`1.0` for the v0 set). */
   since: string
   /** Machine-readable resource boundary enforced by the host binding. */
-  scope: 'active-worktree' | 'explicit-terminal' | 'plugin-private' | 'desktop' | 'host-events'
+  scope:
+    | 'active-worktree'
+    | 'explicit-terminal'
+    | 'plugin-private'
+    | 'desktop'
+    | 'host-events'
+    | 'project-catalog'
   stability: 'experimental'
   capability: PluginCapabilityKind
   /** Mutations are audit-logged with actor `plugin:<id>`. */
@@ -249,6 +297,46 @@ export const PLUGIN_HOST_API_V0: readonly PluginHostMethodSpec[] = [
     panel: false,
     params: eventsSubscribeParams,
     result: eventsSubscribeResult
+  }),
+  spec({
+    name: 'projects.list',
+    since: '1.1',
+    scope: 'project-catalog',
+    capability: 'projects:organize',
+    mutation: false,
+    panel: false,
+    params: projectsListParams,
+    result: projectsListResult
+  }),
+  spec({
+    name: 'projectGroups.create',
+    since: '1.1',
+    scope: 'project-catalog',
+    capability: 'projects:organize',
+    mutation: true,
+    panel: false,
+    params: projectGroupsCreateParams,
+    result: projectGroupsCreateResult
+  }),
+  spec({
+    name: 'projectGroups.delete',
+    since: '1.1',
+    scope: 'project-catalog',
+    capability: 'projects:organize',
+    mutation: true,
+    panel: false,
+    params: projectGroupsDeleteParams,
+    result: projectGroupsDeleteResult
+  }),
+  spec({
+    name: 'projects.moveToGroup',
+    since: '1.1',
+    scope: 'project-catalog',
+    capability: 'projects:organize',
+    mutation: true,
+    panel: false,
+    params: projectsMoveToGroupParams,
+    result: projectsMoveToGroupResult
   })
 ]
 

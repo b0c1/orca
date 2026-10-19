@@ -164,4 +164,13 @@ export async function initializeMainProcessPlugins(runtime: OrcaRuntimeService):
     }
   })
   runtime.onWorktreeLifecycle(emitPluginWorktreeLifecycle)
+  // Why: both renderer IPC and runtime RPC catalog mutations publish `reposChanged` here.
+  runtime.onClientEvent(
+    (event) => {
+      if (event.type === 'reposChanged') {
+        state.pluginService?.emitEvent('projects.changed', {})
+      }
+    },
+    { consumesTerminalSideEffects: false }
+  )
 }
