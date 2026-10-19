@@ -1,12 +1,22 @@
 import {
   getPluginHostMethodSpec,
   PLUGIN_HOST_API_V0,
+  PLUGIN_PROJECT_GROUP_LIST_LIMIT,
+  PLUGIN_PROJECT_LIST_LIMIT,
+  projectGroupsCreateParams,
+  projectGroupsDeleteParams,
+  projectsMoveToGroupParams,
   PLUGIN_TERMINAL_ID_MAX_LENGTH,
   PLUGIN_WORKSPACE_LABEL_MAX_LENGTH,
   PLUGIN_WORKSPACE_TERMINAL_LIMIT,
   type PluginHostMethodSpec
 } from '../../shared/plugins/plugin-host-api'
 import type { PluginEventName } from '../../shared/plugins/plugin-manifest'
+
+export type PluginProjectCatalog = {
+  groups: { id: string; name: string; folderBacked: boolean }[]
+  projects: { id: string; displayName: string; remoteKey: string | null; groupId: string | null }[]
+}
 
 export type PluginWorktreeContext = {
   worktreeId: string
@@ -47,6 +57,12 @@ export type PluginHostServices = {
     set(pluginId: string, key: string, value: unknown): { ok: true } | { ok: false; error: string }
   }
   subscribeEvents(pluginId: string, events: PluginEventName[]): PluginEventName[]
+  projects: {
+    list(): Promise<PluginProjectCatalog>
+    createGroup(name: string): Promise<{ id: string }>
+    deleteGroup(groupId: string): Promise<{ deleted: boolean }>
+    moveToGroup(projectId: string, groupId: string | null): Promise<void>
+  }
 }
 
 export type BoundPluginHostMethod = {
@@ -167,6 +183,24 @@ const HANDLERS = new Map<string, BoundPluginHostMethod>([
   definePluginMethod('events.subscribe', async (params, { pluginId, services }) => {
     const { events } = params as { events: PluginEventName[] }
     return { subscribed: services.subscribeEvents(pluginId, events) }
+  }),
+  definePluginMethod('projects.list', async (_params, { services }) => {
+    const catalog = await services.projects.list()
+    return {
+      groups: catalog.groups.slice(0, PLUGIN_PROJECT_GROUP_LIST_LIMIT),
+      projects: catalog.projects.slice(0, PLUGIN_PROJECT_LIST_LIMIT)
+    }
+  }),
+  definePluginMethod('projectGroups.create', async (params, { services }) => {
+    return services.projects.createGroup(projectGroupsCreateParams.parse(params).name)
+  }),
+  definePluginMethod('projectGroups.delete', async (params, { services }) => {
+    return services.projects.deleteGroup(projectGroupsDeleteParams.parse(params).groupId)
+  }),
+  definePluginMethod('projects.moveToGroup', async (params, { services }) => {
+    const { projectId, groupId } = projectsMoveToGroupParams.parse(params)
+    await services.projects.moveToGroup(projectId, groupId)
+    return { ok: true }
   })
 ])
 

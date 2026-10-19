@@ -26,7 +26,13 @@ function createServices(storageSet: PluginHostServices['storage']['set']): Plugi
       getAll: vi.fn().mockReturnValue({}),
       set: vi.fn().mockReturnValue({ ok: true })
     },
-    subscribeEvents: vi.fn().mockReturnValue([])
+    subscribeEvents: vi.fn().mockReturnValue([]),
+    projects: {
+      list: vi.fn().mockResolvedValue({ groups: [], projects: [] }),
+      createGroup: vi.fn(),
+      deleteGroup: vi.fn(),
+      moveToGroup: vi.fn()
+    }
   }
 }
 
@@ -134,7 +140,14 @@ function createTerminalHarness(terminalHandles: string[]): {
       terminals: terminalHandles.map((handle) => ({ handle, title: null }))
     }),
     sendTerminal: vi.fn().mockResolvedValue({ accepted: true }),
-    dispatchPluginNotification: vi.fn().mockResolvedValue({ delivered: true })
+    dispatchPluginNotification: vi.fn().mockResolvedValue({ delivered: true }),
+    listVisibleRepos: vi.fn().mockReturnValue([]),
+    listVisibleProjectGroups: vi.fn().mockReturnValue([]),
+    listProjectGroups: vi.fn().mockReturnValue([]),
+    listFolderWorkspaces: vi.fn().mockReturnValue([]),
+    createProjectGroup: vi.fn(),
+    deleteProjectGroup: vi.fn(),
+    moveProjectToGroup: vi.fn()
   }
   return {
     delegate,

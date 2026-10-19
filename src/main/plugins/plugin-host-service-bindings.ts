@@ -4,6 +4,10 @@ import type { PluginHostServices } from './plugin-host-methods'
 import { PluginSecretsStore } from './plugin-secrets-store'
 import { PluginKvStore } from './plugin-storage-store'
 import type { TerminalInputKind } from '../../shared/terminal-input-kind'
+import type { FolderWorkspace } from '../../shared/folder-workspace-types'
+import type { ProjectGroup } from '../../shared/project-group-types'
+import { getProjectGroupSubtreeIds } from '../../shared/project-groups'
+import type { Repo } from '../../shared/repo-types'
 
 /** Structural subset of OrcaRuntimeService exposed to plugin facade bindings. */
 export type PluginRuntimeDelegate = {
@@ -28,6 +32,19 @@ export type PluginRuntimeDelegate = {
     title: string
     body?: string
   }): Promise<{ delivered: boolean }>
+  listVisibleRepos(): Repo[]
+  listVisibleProjectGroups(): ProjectGroup[]
+  /** Full store, hidden groups included: the delete cascade does not stop at visibility. */
+  listProjectGroups(): ProjectGroup[]
+  listFolderWorkspaces(): FolderWorkspace[]
+  createProjectGroup(input: { name: string }): Promise<ProjectGroup>
+  deleteProjectGroup(groupId: string): Promise<{ deleted: boolean }>
+  moveProjectToGroup(repoSelector: string, groupId: string | null): Promise<Repo>
+}
+
+// Why: deleting a folder-backed group also removes its folder workspaces; plugins only manage manual groups.
+function isFolderBackedGroup(group: ProjectGroup): boolean {
+  return group.parentPath !== null || Boolean(group.connectionId)
 }
 
 export function bindPluginHostServices(input: {
@@ -83,6 +100,68 @@ export function bindPluginHostServices(input: {
       set: (key, itemKey, value) =>
         new PluginKvStore(pluginsDataDir, key, 'settings.json').set(itemKey, value)
     },
-    subscribeEvents
+    subscribeEvents,
+    projects: {
+      list: async () => ({
+        groups: delegate.listVisibleProjectGroups().map((group) => ({
+          id: group.id,
+          name: group.name,
+          folderBacked: isFolderBackedGroup(group)
+        })),
+        projects: delegate.listVisibleRepos().map((repo) => ({
+          id: repo.id,
+          displayName: repo.displayName,
+          remoteKey: repo.gitRemoteIdentity?.canonicalKey ?? null,
+          groupId: repo.projectGroupId ?? null
+        }))
+      }),
+      createGroup: async (name) => ({ id: (await delegate.createProjectGroup({ name })).id }),
+      deleteGroup: async (groupId) => {
+        if (!delegate.listVisibleProjectGroups().some((entry) => entry.id === groupId)) {
+          return { deleted: false }
+        }
+        // Deletion cascades through nested groups (hidden ones too) and removes every folder
+        // workspace filed under them, so any such descendant blocks it.
+        const groups = delegate.listProjectGroups()
+        const subtree = getProjectGroupSubtreeIds(groups, groupId)
+        const visible = new Set(delegate.listVisibleProjectGroups().map((entry) => entry.id))
+        if (
+          groups.some(
+            (entry) =>
+              subtree.has(entry.id) && (isFolderBackedGroup(entry) || !visible.has(entry.id))
+          )
+        ) {
+          throw new Error('folder-backed project groups cannot be deleted by plugins')
+        }
+        if (
+          delegate.listFolderWorkspaces().some((workspace) => subtree.has(workspace.projectGroupId))
+        ) {
+          throw new Error(
+            'project groups containing folder workspaces cannot be deleted by plugins'
+          )
+        }
+        return delegate.deleteProjectGroup(groupId)
+      },
+      moveToGroup: async (projectId, groupId) => {
+        const repo = delegate.listVisibleRepos().find((entry) => entry.id === projectId)
+        if (!repo) {
+          throw new Error('project not found')
+        }
+        const groups = delegate.listVisibleProjectGroups()
+        const isPluginManaged = (id: string | null | undefined): boolean =>
+          id == null || groups.some((entry) => entry.id === id && !isFolderBackedGroup(entry))
+        // Folder-backed groups are device-specific: plugins neither empty nor fill them.
+        if (!isPluginManaged(repo.projectGroupId)) {
+          throw new Error('project belongs to a folder-backed group')
+        }
+        if (groupId !== null && !groups.some((entry) => entry.id === groupId)) {
+          throw new Error('project group not found')
+        }
+        if (!isPluginManaged(groupId)) {
+          throw new Error('folder-backed project groups cannot receive projects from plugins')
+        }
+        await delegate.moveProjectToGroup(`id:${projectId}`, groupId)
+      }
+    }
   }
 }

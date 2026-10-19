@@ -47,10 +47,14 @@ export const agentStatusChangedPayloadSchema = z.object({
     .optional()
 })
 
+/** Content-free: subscribers re-read through `projects.list`. */
+export const projectsChangedPayloadSchema = z.object({}).strict()
+
 export const PLUGIN_EVENT_PAYLOAD_SCHEMAS: Record<PluginEventName, z.ZodTypeAny> = {
   'worktree.created': worktreeCreatedPayloadSchema,
   'worktree.removed': worktreeRemovedPayloadSchema,
-  'agent.status.changed': agentStatusChangedPayloadSchema
+  'agent.status.changed': agentStatusChangedPayloadSchema,
+  'projects.changed': projectsChangedPayloadSchema
 }
 
 export type PluginWorktreeCreatedPayload = z.infer<typeof worktreeCreatedPayloadSchema>
